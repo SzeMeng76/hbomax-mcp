@@ -1,6 +1,6 @@
 {
   "name": "max-price-mcp",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "MCP tool for getting Max subscription prices",
   "main": "index.js",
   "type": "module",
@@ -16,7 +16,7 @@
     "subscription",
     "price"
   ],
-  "author": "",
+  "author": "SzeMeng76",
   "license": "ISC",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.11.0",
