@@ -1,0 +1,28 @@
+{
+  "name": "max-price-mcp",
+  "version": "1.0.1",
+  "description": "MCP tool for getting Max subscription prices",
+  "main": "index.js",
+  "type": "module",
+  "bin": {
+    "max-price-mcp": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "mcp",
+    "max",
+    "subscription",
+    "price"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.0",
+    "jsdom": "^26.1.0",
+    "node-fetch": "^3.3.2",
+    "https-proxy-agent": "^7.0.6",
+    "zod": "^3.24.4"
+  }
+}
