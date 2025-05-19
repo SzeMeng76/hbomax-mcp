@@ -4,8 +4,6 @@ import { z } from 'zod';
 import fetch from 'node-fetch';
 import { JSDOM } from 'jsdom';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 import { createLogger } from './logger.js';
 
 // 设置日志记录器
@@ -149,7 +147,12 @@ async function fetchMaxPage(countryCode, proxy) {
     let proxyOpts = { headers };
     
     if (proxyUrl) {
-        proxyOpts.agent = new HttpsProxyAgent(proxyUrl);
+        try {
+            proxyOpts.agent = new HttpsProxyAgent(proxyUrl);
+        } catch (error) {
+            log.error(`代理配置失败: ${error.message}`);
+            // 继续执行，但没有代理
+        }
     }
     
     // 从静态映射中获取路径
@@ -165,7 +168,11 @@ async function fetchMaxPage(countryCode, proxy) {
                     ...proxyOpts,
                     redirect: 'follow',
                     timeout: 45000
+                })
+                .catch(error => {
+                    throw new Error(`请求失败: ${error.message}`);
                 });
+                
                 log.info(`响应 ${response.status} -> ${response.url}`);
                 
                 if (!response.ok) {
@@ -189,7 +196,11 @@ async function fetchMaxPage(countryCode, proxy) {
             ...proxyOpts,
             redirect: 'follow',
             timeout: 45000
+        })
+        .catch(error => {
+            throw new Error(`请求失败: ${error.message}`);
         });
+        
         log.info(`响应 ${response.status} -> ${response.url}`);
         
         if (!response.ok) {
@@ -202,7 +213,11 @@ async function fetchMaxPage(countryCode, proxy) {
                         ...proxyOpts,
                         redirect: 'follow',
                         timeout: 30000
+                    })
+                    .catch(error => {
+                        throw new Error(`回退请求失败: ${error.message}`);
                     });
+                    
                     log.info(`回退响应 ${fallbackResponse.status} -> ${fallbackResponse.url}`);
                     
                     if (fallbackResponse.ok) {
@@ -273,6 +288,41 @@ async function parseMaxPrices(html, countryCode) {
             }
             
             return [plans, out.join('\n')];
+        } else {
+            // 尝试另一种选择器
+            const planCards = document.querySelectorAll('.max-plan-picker-group__card, .plan-card');
+            if (planCards.length) {
+                for (const card of planCards) {
+                    const nameEl = card.querySelector('h3, .plan-name');
+                    const priceEl = card.querySelector('h4, .plan-price');
+                    
+                    if (!nameEl || !priceEl) continue;
+                    
+                    const name = nameEl.textContent.trim();
+                    const price = priceEl.textContent.trim();
+                    const planGroup = card.closest('[data-plan-group]')?.getAttribute('data-plan-group') || 'monthly';
+                    const label = planGroup === 'monthly' ? '每月' : '每年';
+                    
+                    const key = `${planGroup}-${name}-${price}`;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    
+                    plans.push({
+                        plan_group: planGroup,
+                        label,
+                        name,
+                        price
+                    });
+                }
+                
+                // 构建文本输出
+                const out = [`**Max ${countryCode} 订阅价格:**`];
+                for (const item of plans) {
+                    out.push(`✅ ${item.name} (${item.label}): **${item.price}**`);
+                }
+                
+                return [plans, out.join('\n')];
+            }
         }
     } catch (error) {
         log.error(`解析失败: ${error.message}`);
@@ -292,109 +342,132 @@ async function parseMaxPrices(html, countryCode) {
 async function getMaxPrice(countryCode) {
     log.info(`开始获取 ${countryCode} 的MAX价格...`);
     
-    // 获取代理
-    const proxy = await getProxy(countryCode);
-    if (!proxy) {
+    try {
+        // 获取代理
+        const proxy = await getProxy(countryCode);
+        if (!proxy) {
+            return {
+                success: false,
+                message: `❌ 代理获取失败 (${countryCode})`,
+                data: null
+            };
+        }
+        
+        log.info(`✅ 代理: ${proxy.host}:${proxy.port}`);
+        log.info(`⏳ 访问 max (${countryCode})...`);
+        
+        // 获取页面
+        const html = await fetchMaxPage(countryCode, proxy);
+        if (!html) {
+            return {
+                success: false,
+                message: `❌ 无法访问 max (${countryCode})`,
+                data: null
+            };
+        }
+        
+        log.info("✅ 获取成功，解析中...");
+        
+        // 解析价格
+        const [data, resultText] = await parseMaxPrices(html, countryCode);
+        
+        return {
+            success: data.length > 0,
+            message: resultText,
+            data: data.length > 0 ? {
+                country: countryCode,
+                timestamp: new Date().toISOString(),
+                plans: data
+            } : null
+        };
+    } catch (error) {
+        log.error(`处理错误: ${error.message}`);
+        log.debug(error.stack);
         return {
             success: false,
-            message: `❌ 代理获取失败 (${countryCode})`,
+            message: `❌ 内部错误: ${error.message}`,
             data: null
         };
     }
-    
-    log.info(`✅ 代理: ${proxy.host}:${proxy.port}`);
-    log.info(`⏳ 访问 max (${countryCode})...`);
-    
-    // 获取页面
-    const html = await fetchMaxPage(countryCode, proxy);
-    if (!html) {
-        return {
-            success: false,
-            message: `❌ 无法访问 max (${countryCode})`,
-            data: null
-        };
-    }
-    
-    log.info("✅ 获取成功，解析中...");
-    
-    // 解析价格
-    const [data, resultText] = await parseMaxPrices(html, countryCode);
-    
-    return {
-        success: data.length > 0,
-        message: resultText,
-        data: data.length > 0 ? {
-            country: countryCode,
-            timestamp: new Date().toISOString(),
-            plans: data
-        } : null
-    };
 }
 
 /**
- * 创建MCP服务器并注册工具
- */
-export function createMaxPriceServer() {
-    // 创建MCP服务器
-    const server = new McpServer({
-        name: 'max-price',
-        version: '1.0.0',
-    });
-
-    // 注册获取Max价格工具
-    server.tool(
-        'get-max-price',
-        'Get Max subscription prices by country code',
-        {
-            country_code: z.string().min(2).max(2).describe('Two-letter country code (e.g., SG, US, HK)'),
-        },
-        async ({ country_code }) => {
-            try {
-                const upperCountryCode = country_code.toUpperCase();
-                const result = await getMaxPrice(upperCountryCode);
-                
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: result.message,
-                        },
-                        result.data ? {
-                            type: 'json',
-                            json: result.data
-                        } : null
-                    ].filter(Boolean),
-                };
-            } catch (error) {
-                log.error(`工具执行错误: ${error.message}`);
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: `❌ 内部错误: ${error.message}`,
-                        }
-                    ],
-                };
-            }
-        },
-    );
-    
-    return server;
-}
-
-/**
- * 入口点函数
+ * 主入口函数
  */
 export async function start() {
     try {
         log.info('启动 Max Price MCP 服务器...');
-        const server = createMaxPriceServer();
+        
+        // 创建MCP服务器
+        const server = new McpServer({
+            name: 'max-price',
+            version: '1.0.0',
+        });
+
+        // 注册获取Max价格工具
+        server.tool(
+            'get-max-price',
+            'Get Max subscription prices by country code',
+            {
+                country_code: z.string().min(2).max(2).describe('Two-letter country code (e.g., SG, US, HK)'),
+            },
+            async ({ country_code }) => {
+                try {
+                    log.info(`处理请求: country_code=${country_code}`);
+                    const upperCountryCode = country_code.toUpperCase();
+                    const result = await getMaxPrice(upperCountryCode);
+                    
+                    // 使用适当的响应结构
+                    return {
+                        content: [
+                            {
+                                type: 'text',
+                                text: result.message,
+                            },
+                            result.data ? {
+                                type: 'json',
+                                json: result.data
+                            } : null
+                        ].filter(Boolean),
+                    };
+                } catch (error) {
+                    log.error(`工具执行错误: ${error.message}`);
+                    log.debug(error.stack);
+                    return {
+                        content: [
+                            {
+                                type: 'text',
+                                text: `❌ 内部错误: ${error.message}`,
+                            }
+                        ],
+                    };
+                }
+            },
+        );
+        
+        // 使用标准输入/输出传输
         const transport = new StdioServerTransport();
+        
+        // 连接服务器
         await server.connect(transport);
         log.info('Max Price MCP Server 正在运行 (stdio)');
+        
+        // 保持进程运行
+        process.on('SIGINT', () => {
+            log.info('收到 SIGINT 信号，正在关闭服务器...');
+            process.exit(0);
+        });
     } catch (error) {
         log.error(`启动失败: ${error.message}`);
         log.debug(error.stack);
         process.exit(1);
     }
+}
+
+// 直接调用启动函数
+if (require.main === module) {
+    start().catch(err => {
+        console.error('启动出错:', err);
+        process.exit(1);
+    });
 }
