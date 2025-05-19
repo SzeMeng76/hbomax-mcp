@@ -1,29 +1,40 @@
 {
-  "name": "max-price-mcp",
-  "version": "1.0.0",
-  "description": "MCP tool for getting Max subscription prices",
-  "main": "index.js",
+  "name": "mcp-max-price",
+  "version": "1.0.1",
+  "description": "MCP tool for querying Max streaming service prices by country",
   "type": "module",
+  "main": "src/index.js",
   "bin": {
-    "max-price-mcp": "./index.js"
+    "mcp-max-price": "./bin/mcp-max-price.js"
   },
   "scripts": {
-    "start": "node index.js",
-    "build": "echo \"No build required\" && exit 0"
+    "start": "node bin/mcp-max-price.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
     "mcp",
     "max",
-    "subscription",
-    "price"
+    "price",
+    "streaming",
+    "model-context-protocol"
   ],
-  "author": "",
-  "license": "ISC",
+  "author": "Your Name",
+  "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.11.0",
+    "@modelcontextprotocol/sdk": "^1.11.4",
+    "https-proxy-agent": "^7.0.6",
     "jsdom": "^26.1.0",
     "node-fetch": "^3.3.2",
-    "https-proxy-agent": "^7.0.6",
-    "zod": "^3.24.4"
-  }
+    "winston": "^3.17.0",
+    "zod": "^3.25.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ]
 }
