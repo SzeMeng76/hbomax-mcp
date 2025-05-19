@@ -1,75 +1,66 @@
-# Max Price MCP
+# MCP Max Price
 
-这是一个基于Model Context Protocol (MCP)的工具，用于获取Max流媒体服务在不同国家/地区的订阅价格。
-
-## 功能
-
-- 根据国家代码查询Max订阅价格
-- 自动获取代理以访问对应国家/地区的Max网站
-- 支持多种语言路径和区域映射
-- 解析并格式化订阅价格信息
+一个用于查询Max流媒体服务在不同国家/地区价格的MCP工具。
 
 ## 安装
 
-```bash
-# 从NPM安装
-npm install -g max-price-mcp
-
-# 或者本地安装
-npm install
-```
-
-## 使用方法
-
-### 作为命令行工具
+### 全局安装
 
 ```bash
-# 通过npx运行
-npx max-price-mcp
-
-# 或者安装后运行
-max-price-mcp
+npm install -g mcp-max-price
 ```
 
-### 在MCP兼容的环境中使用
+### 通过npx直接使用
 
-此工具可与支持MCP的应用程序或AI助手一起使用。API包含以下工具:
+无需安装，直接使用npx命令运行：
 
-- `get-max-price`: 根据国家代码获取Max订阅价格
-  - 参数: `country_code` - 两字母国家代码(例如SG, US, HK)
-
-## 示例
-
-```
-# 查询新加坡的Max订阅价格
-get-max-price country_code=SG
-
-# 查询美国的Max订阅价格
-get-max-price country_code=US
+```bash
+npx mcp-max-price
 ```
 
-## 输出示例
+## 集成到MCP客户端
 
+在你的MCP客户端配置中，可以这样使用：
+
+```javascript
+// 配置示例
+const ENV = {
+  MCP_CONFIG: {
+    "max-price": {
+      type: "stdio",
+      command: "npx",
+      args: ["mcp-max-price"],
+      env: { LOG_LEVEL: "info" }
+    }
+  }
+};
+
+// 初始化MCP客户端
+await initializeMcp();
+
+// 获取Max价格
+const mcp = await getMcp();
+const result = await mcp["max-price"]["get-max-price"]({ country_code: "US" });
+console.log(result);
 ```
-**max SG 订阅价格:**
-✅ Basic (每月): **S$9.99**
-✅ Standard (每月): **S$13.99**
-✅ Premium (每月): **S$19.99**
-✅ Basic (每年): **S$99.90**
-✅ Standard (每年): **S$139.90**
-✅ Premium (每年): **S$199.90**
-```
 
-## 依赖项
+## 可用工具
 
-- @modelcontextprotocol/sdk: MCP服务器实现
-- jsdom: HTML解析
-- node-fetch: HTTP请求
-- https-proxy-agent: 代理支持
-- zod: 参数验证
+### get-max-price
 
-## 注意事项
+获取指定国家代码的Max流媒体服务价格信息。
 
-- 需要互联网连接
-- 使用了第三方代理API(mooproxy.xyz)
-- 某些国家/地区可能需要多次尝试才能成功获取价格信息
+**参数:**
+- `country_code`: 两位国家代码（例如：SG, US, HK）
+
+**返回:**
+- 文本格式的价格信息摘要
+- JSON格式的详细价格数据
+
+## 环境变量
+
+- `LOG_LEVEL`: 设置日志级别（默认：info）。可选值：error, warn, info, debug
+
+## 许可证
+
+MIT
