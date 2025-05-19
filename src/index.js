@@ -4,10 +4,13 @@ import { z } from 'zod';
 import fetch from 'node-fetch';
 import { JSDOM } from 'jsdom';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import { createLogger } from './logger.js';
 
-// 设置日志记录器
-const log = createLogger('max-price');
+// 简单日志函数
+const log = {
+  info: (msg) => console.log(`[INFO] ${msg}`),
+  error: (msg) => console.error(`[ERROR] ${msg}`),
+  debug: (msg) => process.env.LOG_LEVEL === 'debug' ? console.debug(`[DEBUG] ${msg}`) : null
+};
 
 // --- 常量定义 ---
 const MAX_URL = "https://www.max.com";
@@ -89,32 +92,39 @@ async function getProxy(countryCode) {
     const url = PROXY_API_TEMPLATE.replace("{country}", countryCode);
     try {
         log.info(`尝试获取代理: ${url}`);
-        const resp = await fetch(url, { timeout: 25000 })
-            .catch(err => {
-                throw new Error(`代理API请求失败: ${err.message}`);
-            });
-            
+        
+        const resp = await fetch(url, { 
+            timeout: 25000,
+            headers: {
+                'User-Agent': USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]
+            } 
+        });
+        
         log.info(`代理 API 状态码: ${resp.status}`);
         
         if (!resp.ok) {
-            throw new Error(`HTTP Error: ${resp.status}`);
+            return null;
         }
         
         const data = await resp.json();
         const plist = data.proxies || [];
         
         if (!plist.length) {
-            throw new Error("代理列表为空");
+            return null;
         }
         
         const parts = plist[0].split(":");
+        if (parts.length < 4) {
+            return null;
+        }
+        
         const host = parts[0];
         const port = parts[1];
         const user = parts[2];
         const password = parts.slice(3).join(":");
         
         if (isNaN(parseInt(port))) {
-            throw new Error("端口号无效");
+            return null;
         }
         
         const full = `http://${user}:${password}@${host}:${port}`;
@@ -129,7 +139,6 @@ async function getProxy(countryCode) {
         };
     } catch (error) {
         log.error(`获取代理失败: ${error.message}`);
-        log.debug(error.stack);
         return null;
     }
 }
@@ -142,17 +151,22 @@ async function getProxy(countryCode) {
  */
 async function fetchMaxPage(countryCode, proxy) {
     const cc = countryCode.toLowerCase();
-    const headers = { ...BASE_HEADERS, 'User-Agent': USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)] };
-    const proxyUrl = proxy ? proxy.proxy : null;
-    let proxyOpts = { headers };
+    const headers = { 
+        ...BASE_HEADERS, 
+        'User-Agent': USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)] 
+    };
     
-    if (proxyUrl) {
-        try {
-            proxyOpts.agent = new HttpsProxyAgent(proxyUrl);
-        } catch (error) {
-            log.error(`代理配置失败: ${error.message}`);
-            // 继续执行，但没有代理
+    let proxyOpts = { headers };
+    let proxyAgent = null;
+    
+    try {
+        if (proxy && proxy.proxy) {
+            proxyAgent = new HttpsProxyAgent(proxy.proxy);
+            proxyOpts.agent = proxyAgent;
         }
+    } catch (error) {
+        log.error(`代理设置失败: ${error.message}`);
+        // 继续使用无代理方式
     }
     
     // 从静态映射中获取路径
@@ -161,90 +175,74 @@ async function fetchMaxPage(countryCode, proxy) {
     // 优先静态映射
     if (paths) {
         for (const path of paths) {
-            const url = MAX_URL + path;
             try {
+                const url = MAX_URL + path;
                 log.info(`尝试访问: ${url}`);
+                
                 const response = await fetch(url, {
                     ...proxyOpts,
                     redirect: 'follow',
                     timeout: 45000
-                })
-                .catch(error => {
-                    throw new Error(`请求失败: ${error.message}`);
                 });
                 
-                log.info(`响应 ${response.status} -> ${response.url}`);
-                
-                if (!response.ok) {
-                    continue;
+                if (response.ok) {
+                    return await response.text();
                 }
-                
-                return await response.text();
             } catch (error) {
-                log.error(`访问失败: ${error.message}`);
+                log.error(`访问失败: ${path} - ${error.message}`);
                 continue;
             }
         }
-        return null;
     }
     
-    // 无映射，则使用通用逻辑
-    const defaultUrl = `${MAX_URL}/${cc}/`;
+    // 无映射或所有路径失败，尝试通用路径
     try {
-        log.info(`尝试访问: ${defaultUrl}`);
+        const defaultUrl = `${MAX_URL}/${cc}/`;
+        log.info(`尝试访问默认URL: ${defaultUrl}`);
+        
         const response = await fetch(defaultUrl, {
             ...proxyOpts,
             redirect: 'follow',
             timeout: 45000
-        })
-        .catch(error => {
-            throw new Error(`请求失败: ${error.message}`);
         });
         
-        log.info(`响应 ${response.status} -> ${response.url}`);
-        
-        if (!response.ok) {
-            // 404 时回退西班牙语
-            if (response.status === 404) {
-                const fallbackUrl = `${MAX_URL}/${cc}/es`;
-                try {
-                    log.info(`西语回退: ${fallbackUrl}`);
-                    const fallbackResponse = await fetch(fallbackUrl, {
-                        ...proxyOpts,
-                        redirect: 'follow',
-                        timeout: 30000
-                    })
-                    .catch(error => {
-                        throw new Error(`回退请求失败: ${error.message}`);
-                    });
-                    
-                    log.info(`回退响应 ${fallbackResponse.status} -> ${fallbackResponse.url}`);
-                    
-                    if (fallbackResponse.ok) {
-                        return await fallbackResponse.text();
-                    }
-                } catch (fallbackError) {
-                    log.error(`回退访问失败: ${fallbackError.message}`);
-                }
-            }
-            return null;
+        if (response.ok) {
+            return await response.text();
         }
         
-        return await response.text();
+        // 404 时尝试西班牙语路径
+        if (response.status === 404) {
+            try {
+                const fallbackUrl = `${MAX_URL}/${cc}/es`;
+                log.info(`尝试西语回退: ${fallbackUrl}`);
+                
+                const fallbackResponse = await fetch(fallbackUrl, {
+                    ...proxyOpts,
+                    redirect: 'follow',
+                    timeout: 30000
+                });
+                
+                if (fallbackResponse.ok) {
+                    return await fallbackResponse.text();
+                }
+            } catch (error) {
+                log.error(`西语回退失败: ${error.message}`);
+            }
+        }
     } catch (error) {
-        log.error(`访问出错: ${error.message}`);
-        log.debug(error.stack);
-        return null;
+        log.error(`访问默认URL失败: ${error.message}`);
     }
+    
+    return null;
 }
 
 /**
  * 解析Max价格
  * @param {string} html HTML内容
  * @param {string} countryCode 国家代码
- * @returns {Promise<[Array<Object>, string]>} [结构化数据, 文本输出]
+ * @returns {[Array<Object>, string]} [结构化数据, 文本输出]
  */
-async function parseMaxPrices(html, countryCode) {
+function parseMaxPrices(html, countryCode) {
     if (!html) {
         const err = `❌ 无法获取页面内容 (${countryCode})`;
         return [[], err];
@@ -253,18 +251,27 @@ async function parseMaxPrices(html, countryCode) {
     try {
         const dom = new JSDOM(html);
         const document = dom.window.document;
+        
+        // 查找所有计划组
         const sections = document.querySelectorAll('section[data-plan-group]');
         const plans = [];
         const seen = new Set();
         
+        // 处理找到的计划组
         if (sections.length) {
             for (const sec of sections) {
                 const p = sec.getAttribute('data-plan-group');
                 const label = p === 'monthly' ? '每月' : '每年';
                 
+                // 查找卡片
                 for (const card of sec.querySelectorAll('.max-plan-picker-group__card')) {
-                    const name = card.querySelector('h3')?.textContent?.trim();
-                    const price = card.querySelector('h4')?.textContent?.trim();
+                    const nameEl = card.querySelector('h3');
+                    const priceEl = card.querySelector('h4');
+                    
+                    if (!nameEl || !priceEl) continue;
+                    
+                    const name = nameEl.textContent.trim();
+                    const price = priceEl.textContent.trim();
                     
                     if (!name || !price) continue;
                     
@@ -280,17 +287,10 @@ async function parseMaxPrices(html, countryCode) {
                     });
                 }
             }
-            
-            // 构建文本输出
-            const out = [`**Max ${countryCode} 订阅价格:**`];
-            for (const item of plans) {
-                out.push(`✅ ${item.name} (${item.label}): **${item.price}**`);
-            }
-            
-            return [plans, out.join('\n')];
         } else {
-            // 尝试另一种选择器
+            // 备用选择器
             const planCards = document.querySelectorAll('.max-plan-picker-group__card, .plan-card');
+            
             if (planCards.length) {
                 for (const card of planCards) {
                     const nameEl = card.querySelector('h3, .plan-name');
@@ -314,24 +314,23 @@ async function parseMaxPrices(html, countryCode) {
                         price
                     });
                 }
-                
-                // 构建文本输出
-                const out = [`**Max ${countryCode} 订阅价格:**`];
-                for (const item of plans) {
-                    out.push(`✅ ${item.name} (${item.label}): **${item.price}**`);
-                }
-                
-                return [plans, out.join('\n')];
             }
         }
+        
+        // 构建输出
+        if (plans.length > 0) {
+            const out = [`**Max ${countryCode} 订阅价格:**`];
+            for (const item of plans) {
+                out.push(`✅ ${item.name} (${item.label}): **${item.price}**`);
+            }
+            return [plans, out.join('\n')];
+        }
+        
+        return [[], "❌ 未解析到任何价格。"];
     } catch (error) {
-        log.error(`解析失败: ${error.message}`);
-        log.debug(error.stack);
-        const err = `❌ 解析出错: ${error.message}`;
-        return [[], err];
+        log.error(`解析错误: ${error.message}`);
+        return [[], `❌ 解析出错: ${error.message}`];
     }
-    
-    return [[], "❌ 未解析到任何价格。"];
 }
 
 /**
@@ -340,36 +339,43 @@ async function parseMaxPrices(html, countryCode) {
  * @returns {Promise<Object>} 结果
  */
 async function getMaxPrice(countryCode) {
-    log.info(`开始获取 ${countryCode} 的MAX价格...`);
-    
     try {
-        // 获取代理
-        const proxy = await getProxy(countryCode);
-        if (!proxy) {
-            return {
-                success: false,
-                message: `❌ 代理获取失败 (${countryCode})`,
-                data: null
-            };
+        log.info(`开始获取 ${countryCode} 的MAX价格...`);
+        
+        // 无代理情况下也尝试请求
+        let proxy = null;
+        try {
+            proxy = await getProxy(countryCode);
+            if (proxy) {
+                log.info(`✅ 代理: ${proxy.host}:${proxy.port}`);
+            } else {
+                log.info(`⚠️ 无法获取代理，将直接访问`);
+            }
+        } catch (error) {
+            log.error(`代理获取异常: ${error.message}`);
         }
         
-        log.info(`✅ 代理: ${proxy.host}:${proxy.port}`);
-        log.info(`⏳ 访问 max (${countryCode})...`);
+        log.info(`⏳ 访问 Max (${countryCode})...`);
         
-        // 获取页面
-        const html = await fetchMaxPage(countryCode, proxy);
+        let html = null;
+        try {
+            html = await fetchMaxPage(countryCode, proxy);
+        } catch (error) {
+            log.error(`网页获取异常: ${error.message}`);
+        }
+        
         if (!html) {
             return {
                 success: false,
-                message: `❌ 无法访问 max (${countryCode})`,
+                message: `❌ 无法访问 Max (${countryCode})`,
                 data: null
             };
         }
         
-        log.info("✅ 获取成功，解析中...");
+        log.info(`✅ 获取成功，解析中...`);
         
-        // 解析价格
-        const [data, resultText] = await parseMaxPrices(html, countryCode);
+        // 同步解析HTML
+        const [data, resultText] = parseMaxPrices(html, countryCode);
         
         return {
             success: data.length > 0,
@@ -382,7 +388,7 @@ async function getMaxPrice(countryCode) {
         };
     } catch (error) {
         log.error(`处理错误: ${error.message}`);
-        log.debug(error.stack);
+        
         return {
             success: false,
             message: `❌ 内部错误: ${error.message}`,
@@ -391,19 +397,30 @@ async function getMaxPrice(countryCode) {
     }
 }
 
-/**
- * 主入口函数
- */
-export async function start() {
+// 处理未捕获的Promise拒绝
+process.on('unhandledRejection', (reason, promise) => {
+    log.error(`未处理的Promise拒绝: ${reason}`);
+});
+
+// 处理未捕获的异常
+process.on('uncaughtException', (error) => {
+    log.error(`未捕获的异常: ${error.message}`);
+    log.error(error.stack);
+});
+
+// 主入口函数
+export async function main() {
+    let server = null;
+    
     try {
         log.info('启动 Max Price MCP 服务器...');
         
         // 创建MCP服务器
-        const server = new McpServer({
+        server = new McpServer({
             name: 'max-price',
             version: '1.0.0',
         });
-
+        
         // 注册获取Max价格工具
         server.tool(
             'get-max-price',
@@ -413,11 +430,21 @@ export async function start() {
             },
             async ({ country_code }) => {
                 try {
+                    if (!country_code || typeof country_code !== 'string') {
+                        return {
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: '❌ 国家代码无效',
+                                }
+                            ],
+                        };
+                    }
+                    
                     log.info(`处理请求: country_code=${country_code}`);
                     const upperCountryCode = country_code.toUpperCase();
                     const result = await getMaxPrice(upperCountryCode);
                     
-                    // 使用适当的响应结构
                     return {
                         content: [
                             {
@@ -432,7 +459,7 @@ export async function start() {
                     };
                 } catch (error) {
                     log.error(`工具执行错误: ${error.message}`);
-                    log.debug(error.stack);
+                    
                     return {
                         content: [
                             {
@@ -442,7 +469,7 @@ export async function start() {
                         ],
                     };
                 }
-            },
+            }
         );
         
         // 使用标准输入/输出传输
@@ -452,22 +479,36 @@ export async function start() {
         await server.connect(transport);
         log.info('Max Price MCP Server 正在运行 (stdio)');
         
-        // 保持进程运行
+        // 确保进程不会意外退出
+        process.stdin.resume();
+        
+        // 处理退出信号
         process.on('SIGINT', () => {
-            log.info('收到 SIGINT 信号，正在关闭服务器...');
+            log.info('收到退出信号，正在关闭服务器...');
+            if (server) {
+                try {
+                    // 可选的清理工作
+                } catch (error) {
+                    log.error(`关闭服务器时出错: ${error.message}`);
+                }
+            }
             process.exit(0);
         });
     } catch (error) {
         log.error(`启动失败: ${error.message}`);
-        log.debug(error.stack);
+        log.error(error.stack);
         process.exit(1);
     }
 }
 
-// 直接调用启动函数
-if (require.main === module) {
-    start().catch(err => {
-        console.error('启动出错:', err);
+// 直接运行
+if (typeof require !== 'undefined' && require.main === module) {
+    main().catch(error => {
+        console.error(`严重错误: ${error.message}`);
+        console.error(error.stack);
         process.exit(1);
     });
+} else {
+    // 作为模块导入时导出start函数
+    export const start = main;
 }
