@@ -1,6 +1,6 @@
 {
   "name": "mcp-max-price",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "MCP tool for querying Max streaming service prices by country",
   "type": "module",
   "main": "src/index.js",
@@ -19,15 +19,14 @@
     "streaming",
     "model-context-protocol"
   ],
-  "author": "Your Name",
+  "author": "SzeMeng76",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.6.0",
-    "https-proxy-agent": "^7.0.2",
-    "jsdom": "^22.1.0",
+    "@modelcontextprotocol/sdk": "^1.11.4",
+    "https-proxy-agent": "^7.0.6",
+    "jsdom": "^26.1.0",
     "node-fetch": "^3.3.2",
-    "winston": "^3.11.0",
-    "zod": "^3.22.4"
+    "zod": "^3.25.3"
   },
   "engines": {
     "node": ">=18.0.0"
