@@ -1,6 +1,6 @@
 {
   "name": "mcp-max-price",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "MCP tool for querying Max streaming service prices by country",
   "type": "module",
   "main": "src/index.js",
