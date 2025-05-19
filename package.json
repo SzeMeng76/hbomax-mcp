@@ -1,6 +1,6 @@
 {
   "name": "mcp-max-price",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "MCP tool for querying Max streaming service prices by country",
   "type": "module",
   "main": "src/index.js",
@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node bin/mcp-max-price.js",
+    "build": "mkdir -p dist && cp -r src/ bin/ package.json README.md LICENSE dist/",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -21,12 +22,12 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.11.4",
-    "https-proxy-agent": "^7.0.6",
-    "jsdom": "^26.1.0",
+    "@modelcontextprotocol/sdk": "^0.6.0",
+    "https-proxy-agent": "^7.0.2",
+    "jsdom": "^22.1.0",
     "node-fetch": "^3.3.2",
-    "winston": "^3.17.0",
-    "zod": "^3.25.3"
+    "winston": "^3.11.0",
+    "zod": "^3.22.4"
   },
   "engines": {
     "node": ">=18.0.0"
