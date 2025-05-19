@@ -1,38 +1,62 @@
-import { createLogger as createWinstonLogger, format, transports } from 'winston';
-const { combine, timestamp, printf, colorize } = format;
+/**
+ * 简化版日志记录器
+ * 不依赖Winston或其他库，减少依赖问题
+ */
+
+const LOG_LEVELS = {
+  error: 0,
+  warn: 1, 
+  info: 2,
+  debug: 3
+};
 
 /**
- * 创建自定义日志格式
+ * 获取当前时间戳
+ * @returns {string} 格式化的时间戳
  */
-const customFormat = printf(({ level, message, timestamp, namespace }) => {
-  return `${timestamp} [${namespace}] ${level}: ${message}`;
-});
+function getTimestamp() {
+  const now = new Date();
+  return now.toISOString();
+}
 
 /**
  * 创建一个命名的日志记录器
  * @param {string} namespace 日志命名空间
- * @param {object} options 日志选项
  * @returns {object} 日志实例
  */
-export function createLogger(namespace, options = {}) {
+export function createLogger(namespace) {
   const logLevel = process.env.LOG_LEVEL || 'info';
+  const currentLevelValue = LOG_LEVELS[logLevel.toLowerCase()] || LOG_LEVELS.info;
   
-  return createWinstonLogger({
-    level: logLevel,
-    format: combine(
-      timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-      colorize(),
-      format.metadata({ fillExcept: ['message', 'level', 'timestamp', 'namespace'] }),
-      format.label({ label: namespace }),
-      format.timestamp(),
-      customFormat
-    ),
-    defaultMeta: { namespace },
-    transports: [
-      new transports.Console({
-        stderrLevels: ['error'],
-      }),
-    ],
-    ...options
-  });
+  function shouldLog(level) {
+    const levelValue = LOG_LEVELS[level];
+    return levelValue <= currentLevelValue;
+  }
+  
+  function formatLog(level, message) {
+    return `${getTimestamp()} [${namespace}] ${level.toUpperCase()}: ${message}`;
+  }
+  
+  return {
+    error: (message) => {
+      if (shouldLog('error')) {
+        console.error(formatLog('error', message));
+      }
+    },
+    warn: (message) => {
+      if (shouldLog('warn')) {
+        console.warn(formatLog('warn', message));
+      }
+    },
+    info: (message) => {
+      if (shouldLog('info')) {
+        console.info(formatLog('info', message));
+      }
+    },
+    debug: (message) => {
+      if (shouldLog('debug')) {
+        console.debug(formatLog('debug', message));
+      }
+    }
+  };
 }
